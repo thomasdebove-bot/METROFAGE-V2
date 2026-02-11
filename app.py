@@ -1502,6 +1502,7 @@ CONSTRAINT_TOGGLES_JS = r"""
     keepSessionHeaderWithNext: true,
     printAutoOptimize: true,
     topScale: true,
+    presenceOnCover: true,
   };
 
   function loadState(){
@@ -1563,8 +1564,28 @@ CONSTRAINT_TOGGLES_JS = r"""
     panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
   });
 
+  const btnPresenceCoverToggle = document.getElementById('btnPresenceCoverToggle');
+  function syncPresenceToggleButton(){
+    if(!btnPresenceCoverToggle){ return; }
+    const enabled = !!state.presenceOnCover;
+    btnPresenceCoverToggle.textContent = `Présence sur garde : ${enabled ? 'ON' : 'OFF'}`;
+    btnPresenceCoverToggle.classList.toggle('active', enabled);
+  }
+  if(btnPresenceCoverToggle){
+    btnPresenceCoverToggle.addEventListener('click', () => {
+      state.presenceOnCover = !state.presenceOnCover;
+      const input = panel.querySelector('[data-constraint="presenceOnCover"]');
+      if(input){ input.checked = !!state.presenceOnCover; }
+      applyConstraint('presenceOnCover', !!state.presenceOnCover);
+      saveState(state);
+      syncPresenceToggleButton();
+      if(window.repaginateReport){ window.repaginateReport(); }
+    });
+  }
+
   applyAll(state);
   updateFooterReserveFactor();
+  syncPresenceToggleButton();
 })();
 """
 
@@ -1886,13 +1907,22 @@ PAGINATION_JS = r"""
 
   function paginate(){
     const container = document.querySelector('.reportPages');
-    const firstPage = container?.querySelector('.page--report');
-    if(!container || !firstPage) return;
-    const blocksContainer = firstPage.querySelector('.reportBlocks');
+    const firstReportPage = container?.querySelector('.page--report');
+    const coverPage = document.querySelector('.page--cover');
+    const coverFlow = coverPage?.querySelector('.coverFlowBlocks');
+    if(!container || !firstReportPage || !coverPage || !coverFlow) return;
+    const blocksContainer = firstReportPage.querySelector('.reportBlocks');
     if(!blocksContainer) return;
 
     mergeZoneBlocks(container);
-    const blocks = Array.from(container.querySelectorAll('.reportBlock')).map(block => {
+
+    const presenceOnCover = !document.body.classList.contains('constraint-off-presenceOnCover');
+    const sourceBlocks = [];
+    const coverPresence = coverFlow.querySelector('.presenceBlock');
+    if(coverPresence){ sourceBlocks.push(coverPresence); }
+    sourceBlocks.push(...Array.from(container.querySelectorAll('.reportBlock')));
+
+    const blocks = sourceBlocks.map(block => {
       const splitData = block.classList.contains('zoneBlock')
         ? getZoneSplitData(block)
         : (block.classList.contains('presenceBlock')
@@ -1906,47 +1936,28 @@ PAGINATION_JS = r"""
     });
 
     blocks.forEach(({node}) => node.remove());
+    coverFlow.innerHTML = '';
     clearExtraPages(container);
 
-    let currentPage = firstPage;
-    let currentBlocks = blocksContainer;
-    let available = calcAvailable(currentPage, true);
-    const coverBlock = currentPage.querySelector('.coverBlock');
-    let used = coverBlock ? (coverBlock.getBoundingClientRect().height || coverBlock.offsetHeight || 0) : 0;
     const template = document.getElementById('report-page-template');
+    let currentPage = coverPage;
+    let currentBlocks = coverFlow;
+    let available = calcAvailable(currentPage, false);
+    const coverBlock = coverPage.querySelector('.coverBlock');
+    let used = coverBlock ? (coverBlock.getBoundingClientRect().height || coverBlock.offsetHeight || 0) : 0;
+    let presenceHandled = false;
 
-    blocks.forEach(({node, height, splitData}) => {
-      if(splitData && splitData.rows.length){
-        let rowIndex = 0;
-        while(rowIndex < splitData.rows.length){
-          const remaining = available - used;
-          if(remaining <= splitData.titleHeight + splitData.tableOverhead && template && used > 0){
-            const clone = template.content.firstElementChild.cloneNode(true);
-            container.appendChild(clone);
-            currentPage = clone;
-            currentBlocks = clone.querySelector('.reportBlocks');
-            available = calcAvailable(currentPage, false);
-            used = 0;
-          }
-          const maxHeight = Math.max(available - used, splitData.titleHeight + splitData.tableOverhead);
-          const {chunk, nextIndex, height: chunkHeight} = buildZoneChunk(node, splitData, rowIndex, maxHeight);
-          if(used > 0 && used + chunkHeight > available && template){
-            const clone = template.content.firstElementChild.cloneNode(true);
-            container.appendChild(clone);
-            currentPage = clone;
-            currentBlocks = clone.querySelector('.reportBlocks');
-            available = calcAvailable(currentPage, false);
-            used = 0;
-          }
-          currentBlocks.appendChild(chunk);
-          const actualHeight = chunk.getBoundingClientRect().height || chunkHeight;
-          used += actualHeight;
-          rowIndex = nextIndex;
-        }
-        return;
-      }
+    function moveToReportPage(){
+      if(currentPage !== coverPage){ return; }
+      currentPage = firstReportPage;
+      currentBlocks = blocksContainer;
+      available = calcAvailable(currentPage, false);
+      used = 0;
+    }
 
-      if(used > 0 && used + height > available && template){
+    function ensureReportPageCapacity(requiredHeight){
+      moveToReportPage();
+      if(used > 0 && used + requiredHeight > available && template){
         const clone = template.content.firstElementChild.cloneNode(true);
         container.appendChild(clone);
         currentPage = clone;
@@ -1954,6 +1965,55 @@ PAGINATION_JS = r"""
         available = calcAvailable(currentPage, false);
         used = 0;
       }
+    }
+
+    blocks.forEach(({node, height, splitData}) => {
+      const isPresenceBlock = node.classList.contains('presenceBlock');
+
+      if(isPresenceBlock && !presenceOnCover){
+        moveToReportPage();
+      }else if(!isPresenceBlock && presenceHandled){
+        moveToReportPage();
+      }
+
+      if(splitData && splitData.rows.length){
+        let rowIndex = 0;
+        while(rowIndex < splitData.rows.length){
+          const remaining = available - used;
+          if(remaining <= splitData.titleHeight + splitData.tableOverhead && template && currentPage !== coverPage){
+            const clone = template.content.firstElementChild.cloneNode(true);
+            container.appendChild(clone);
+            currentPage = clone;
+            currentBlocks = clone.querySelector('.reportBlocks');
+            available = calcAvailable(currentPage, false);
+            used = 0;
+          }else if(remaining <= splitData.titleHeight + splitData.tableOverhead && currentPage === coverPage){
+            moveToReportPage();
+          }
+
+          const maxHeight = Math.max(available - used, splitData.titleHeight + splitData.tableOverhead);
+          const {chunk, nextIndex, height: chunkHeight} = buildZoneChunk(node, splitData, rowIndex, maxHeight);
+
+          if(currentPage !== coverPage && used > 0 && used + chunkHeight > available && template){
+            const clone = template.content.firstElementChild.cloneNode(true);
+            container.appendChild(clone);
+            currentPage = clone;
+            currentBlocks = clone.querySelector('.reportBlocks');
+            available = calcAvailable(currentPage, false);
+            used = 0;
+          }
+
+          currentBlocks.appendChild(chunk);
+          const actualHeight = chunk.getBoundingClientRect().height || chunkHeight;
+          used += actualHeight;
+          rowIndex = nextIndex;
+        }
+
+        if(isPresenceBlock){ presenceHandled = true; }
+        return;
+      }
+
+      ensureReportPageCapacity(height);
       currentBlocks.appendChild(node);
       const actualHeight = node.getBoundingClientRect().height || height;
       used += actualHeight;
@@ -2541,6 +2601,7 @@ def render_cr(
         <button class="btn secondary editCompact" id="btnAnalysis" type="button">Analyse</button>
         <button class="btn secondary editCompact" id="btnRange" type="button" onclick="toggleRangePanel()">Choisir une période</button>
         <button class="btn secondary editCompact" id="btnConstraints" type="button">Contraintes HTML / impression</button>
+        <button class="btn secondary editCompact" id="btnPresenceCoverToggle" type="button">Présence sur garde : ON</button>
         <button class="btn secondary editCompact" id="btnPrintPreview" type="button">Aperçu impression : OFF</button>
         <select id="hiddenRowsSelect" class="hiddenRowsSelect" title="Lignes masquées">
           <option value="">Lignes masquées…</option>
@@ -2588,6 +2649,7 @@ def render_cr(
           <label><input type="checkbox" data-constraint="keepSessionHeaderWithNext" checked /> Ne pas laisser « En séance du » seul en bas de page</label>
           <label><input type="checkbox" data-constraint="printAutoOptimize" checked /> Optimisation auto avant impression</label>
           <label><input type="checkbox" data-constraint="topScale" checked /> Mise à l'échelle du bandeau haut</label>
+          <label><input type="checkbox" data-constraint="presenceOnCover" checked /> Démarrer le tableau de présence sur la page de garde</label>
         </div>
       </div>
     """
@@ -2966,7 +3028,7 @@ body{{padding:14px 14px 14px 280px;}}
 .noPrint{{}}
 @media print{{ .noPrint{{display:none!important}} }}
 @media print{{body{{padding:0;background:#fff}} .page{{margin:0;box-shadow:none}}}}
-body.printOptimized .reportBlocks{{gap:0!important}}
+body.printOptimized .reportBlocks,body.printOptimized .coverFlowBlocks{{gap:0!important}}
 body.printOptimized .zoneBlock{{margin:0!important}}
 body.printOptimized .crTable th, body.printOptimized .crTable td{{padding:4px 5px!important;line-height:1.16!important}}
 body.printOptimized .reportHeader{{margin-bottom:4px!important}}
@@ -3139,7 +3201,7 @@ body.constraint-off-topScale .topPage{{transform:none!important}}
 
 .zoneBlock{{margin:0}}
 .zoneBlock + .zoneBlock{{margin-top:0}}
-.reportBlocks{{display:flex;flex-direction:column;gap:0}}
+.reportBlocks,.coverFlowBlocks{{display:flex;flex-direction:column;gap:0}}
 .reportBlock{{break-inside:auto;page-break-inside:auto}}
 .reportNote{{margin-top:12px}}
 .crTable{{width:100%;border-collapse:collapse;table-layout:fixed;border:1px solid var(--border);margin-top:-1px;}}
@@ -3386,6 +3448,9 @@ body.constraint-off-topScale .topPage{{transform:none!important}}
           {cover_html}
           {top_html}
         </div>
+        <div class="coverFlowBlocks">
+          {presence_block_html}
+        </div>
       </div>
       <div class="docFooter">
         <div class="footLeft"></div>
@@ -3400,7 +3465,6 @@ body.constraint-off-topScale .topPage{{transform:none!important}}
           <div class="reportTables">
             {report_header_html}
             <div class="reportBlocks">
-              {presence_block_html}
               {zones_html}
               {annexes_html}
               {report_note_html}
