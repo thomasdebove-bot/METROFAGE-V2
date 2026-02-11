@@ -1770,8 +1770,6 @@ PRINT_OPTIMIZE_JS = r"""
 
 PAGINATION_JS = r"""
 (function(){
-  const PRESENCE_FIRST_PAGE_START_RATIO = 0.66;
-
   function px(value){
     const n = parseFloat(value || "0");
     return Number.isNaN(n) ? 0 : n;
@@ -1925,7 +1923,6 @@ PAGINATION_JS = r"""
     let available = calcAvailable(currentPage, false);
     const coverBlock = coverPage.querySelector('.coverBlock');
     let used = coverBlock ? (coverBlock.getBoundingClientRect().height || coverBlock.offsetHeight || 0) : 0;
-    let presenceStartAligned = false;
     let presenceHandled = false;
 
     function moveToReportPage(){
@@ -1948,21 +1945,6 @@ PAGINATION_JS = r"""
       }
     }
 
-    function ensurePresenceStartOffset(){
-      if(presenceStartAligned || currentPage !== coverPage){ return; }
-      const targetStart = Math.max(0, available * PRESENCE_FIRST_PAGE_START_RATIO);
-      if(used >= targetStart){
-        presenceStartAligned = true;
-        return;
-      }
-      const spacer = document.createElement('div');
-      spacer.className = 'presenceFirstPageSpacer';
-      spacer.style.height = `${targetStart - used}px`;
-      currentBlocks.appendChild(spacer);
-      used = targetStart;
-      presenceStartAligned = true;
-    }
-
     blocks.forEach(({node, height, splitData}) => {
       const isPresenceBlock = node.classList.contains('presenceBlock');
 
@@ -1970,9 +1952,6 @@ PAGINATION_JS = r"""
         moveToReportPage();
       }
 
-      if(isPresenceBlock){
-        ensurePresenceStartOffset();
-      }
 
       if(splitData && splitData.rows.length){
         let rowIndex = 0;
