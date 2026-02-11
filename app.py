@@ -1770,6 +1770,8 @@ PRINT_OPTIMIZE_JS = r"""
 
 PAGINATION_JS = r"""
 (function(){
+  const PRESENCE_FIRST_PAGE_START_RATIO = 0.66;
+
   function px(value){
     const n = parseFloat(value || "0");
     return Number.isNaN(n) ? 0 : n;
@@ -1913,8 +1915,29 @@ PAGINATION_JS = r"""
     const coverBlock = currentPage.querySelector('.coverBlock');
     let used = coverBlock ? (coverBlock.getBoundingClientRect().height || coverBlock.offsetHeight || 0) : 0;
     const template = document.getElementById('report-page-template');
+    let presenceStartAligned = false;
+
+    function ensurePresenceStartOffset(){
+      if(presenceStartAligned){ return; }
+      const isFirstReportPage = currentPage === firstPage;
+      if(!isFirstReportPage){ return; }
+      const targetStart = Math.max(0, available * PRESENCE_FIRST_PAGE_START_RATIO);
+      if(used >= targetStart){
+        presenceStartAligned = true;
+        return;
+      }
+      const spacer = document.createElement('div');
+      spacer.className = 'presenceFirstPageSpacer';
+      spacer.style.height = `${targetStart - used}px`;
+      currentBlocks.appendChild(spacer);
+      used = targetStart;
+      presenceStartAligned = true;
+    }
 
     blocks.forEach(({node, height, splitData}) => {
+      if(node.classList.contains('presenceBlock')){
+        ensurePresenceStartOffset();
+      }
       if(splitData && splitData.rows.length){
         let rowIndex = 0;
         while(rowIndex < splitData.rows.length){
