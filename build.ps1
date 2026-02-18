@@ -4,6 +4,9 @@ param(
     [string]$Python = 'python',
     [string]$OutDir = '',
     [string]$LogFile = 'build.log',
+    [string]$LogoEiffagePath = 'C:\tempo-cr\Logo EIFFAGE.png',
+    [string]$LogoSquarePath = 'C:\tempo-cr\Carré eiffage.png',
+    [string]$LogoSquare90Path = 'C:\tempo-cr\Carré eiffage 90.png',
     [switch]$PauseOnExit
 )
 
@@ -17,9 +20,13 @@ function Invoke-Cmd {
         [string[]]$Arguments = @()
     )
 
+    $displayArgs = ($Arguments | ForEach-Object { '"{0}"' -f $_ }) -join ' '
+    Write-Host "[cmd] $File $displayArgs" -ForegroundColor DarkGray
+
     & $File @Arguments
-    if ($LASTEXITCODE -ne 0) {
-        throw "Commande en échec: $File $($Arguments -join ' ')"
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) {
+        throw "Commande en échec (code $exitCode): $File $($Arguments -join ' ')"
     }
 }
 
@@ -30,6 +37,19 @@ function Invoke-Step {
     )
     Write-Host "`n==> $Label" -ForegroundColor Cyan
     & $Action
+}
+
+function Assert-FileExists {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+        [Parameter(Mandatory = $true)]
+        [string]$Label
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        throw "$Label introuvable: $Path"
+    }
 }
 
 try {
@@ -43,10 +63,12 @@ try {
         $OutDir = Join-Path $PSScriptRoot 'dist'
     }
 
-    $appPath = Join-Path $PSScriptRoot 'app.py'
-    if (-not (Test-Path -LiteralPath $appPath)) {
-        throw "app.py introuvable dans: $PSScriptRoot"
+    if (-not ([System.IO.Path]::IsPathRooted($OutDir))) {
+        $OutDir = Join-Path $PSScriptRoot $OutDir
     }
+
+    $appPath = Join-Path $PSScriptRoot 'app.py'
+    Assert-FileExists -Path $appPath -Label 'app.py'
 
     if ($LogFile) {
         $logPath = if ([System.IO.Path]::IsPathRooted($LogFile)) { $LogFile } else { Join-Path $PSScriptRoot $LogFile }
@@ -67,25 +89,29 @@ try {
     }
 
     if ($Mode -eq 'package') {
+        Invoke-Step "Validation des logos à embarquer" {
+            Assert-FileExists -Path $LogoEiffagePath -Label 'Logo EIFFAGE'
+            Assert-FileExists -Path $LogoSquarePath -Label 'Carré eiffage'
+            Assert-FileExists -Path $LogoSquare90Path -Label 'Carré eiffage 90'
+        }
+
         Invoke-Step "Installation de PyInstaller (si nécessaire)" {
             Invoke-Cmd -File $Python -Arguments @('-m', 'pip', 'install', '--upgrade', 'pip', 'pyinstaller')
         }
 
         Invoke-Step "Build binaire" {
-            $logoEiffage = 'C:\tempo-cr\Logo EIFFAGE.png'
-            $logoSquare = 'C:\tempo-cr\Carré eiffage.png'
-            $logoSquare90 = 'C:\tempo-cr\Carré eiffage 90.png'
+            New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
 
             $pyInstallerArgs = @(
-                '-m', 'PyInstaller',
+                '-m', 'pyinstaller',
                 '--noconfirm',
                 '--clean',
                 '--onefile',
                 '--name', 'metrofage',
                 '--distpath', $OutDir,
-                '--add-data', "$logoEiffage;.",
-                '--add-data', "$logoSquare;.",
-                '--add-data', "$logoSquare90;.",
+                "--add-data=$LogoEiffagePath;.",
+                "--add-data=$LogoSquarePath;.",
+                "--add-data=$LogoSquare90Path;.",
                 $appPath
             )
 
