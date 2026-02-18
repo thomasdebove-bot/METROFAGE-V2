@@ -1,8 +1,8 @@
 param(
-    [ValidateSet('check','package')]
-    [string]$Mode = 'check',
+    [ValidateSet('package','check')]
+    [string]$Mode = 'package',
     [string]$Python = 'python',
-    [string]$OutDir = 'dist',
+    [string]$OutDir = '',
     [string]$LogFile = 'build.log',
     [switch]$PauseOnExit
 )
@@ -33,16 +33,37 @@ function Invoke-Step {
 }
 
 try {
-    if ($LogFile) {
-        Start-Transcript -Path $LogFile -Append | Out-Null
+    if (-not $PSScriptRoot) {
+        $PSScriptRoot = (Get-Location).Path
     }
+
+    Push-Location $PSScriptRoot
+
+    if ([string]::IsNullOrWhiteSpace($OutDir)) {
+        $OutDir = Join-Path $PSScriptRoot 'dist'
+    }
+
+    $appPath = Join-Path $PSScriptRoot 'app.py'
+    if (-not (Test-Path -LiteralPath $appPath)) {
+        throw "app.py introuvable dans: $PSScriptRoot"
+    }
+
+    if ($LogFile) {
+        $logPath = if ([System.IO.Path]::IsPathRooted($LogFile)) { $LogFile } else { Join-Path $PSScriptRoot $LogFile }
+        Start-Transcript -Path $logPath -Append | Out-Null
+        $LogFile = $logPath
+    }
+
+    Write-Host "Mode sélectionné: $Mode" -ForegroundColor DarkCyan
+    Write-Host "Répertoire du script: $PSScriptRoot" -ForegroundColor DarkCyan
+    Write-Host "Sortie binaire: $OutDir" -ForegroundColor DarkCyan
 
     Invoke-Step "Validation de l'environnement Python" {
         Invoke-Cmd -File $Python -Arguments @('--version')
     }
 
     Invoke-Step "Compilation de contrôle" {
-        Invoke-Cmd -File $Python -Arguments @('-m', 'py_compile', 'app.py')
+        Invoke-Cmd -File $Python -Arguments @('-m', 'py_compile', $appPath)
     }
 
     if ($Mode -eq 'package') {
@@ -65,13 +86,18 @@ try {
                 '--add-data', "$logoEiffage;.",
                 '--add-data', "$logoSquare;.",
                 '--add-data', "$logoSquare90;.",
-                'app.py'
+                $appPath
             )
 
             Invoke-Cmd -File $Python -Arguments $pyInstallerArgs
         }
 
-        Write-Host "`nBuild terminé. Binaire disponible dans: $OutDir" -ForegroundColor Green
+        $exePath = Join-Path $OutDir 'metrofage.exe'
+        if (-not (Test-Path -LiteralPath $exePath)) {
+            throw "Build terminé mais EXE introuvable: $exePath"
+        }
+
+        Write-Host "`nBuild terminé. Binaire disponible: $exePath" -ForegroundColor Green
     }
     else {
         Write-Host "`nMode check terminé (aucun binaire généré)." -ForegroundColor Green
@@ -84,6 +110,7 @@ catch {
 }
 finally {
     try { Stop-Transcript | Out-Null } catch { }
+    try { Pop-Location } catch { }
     if ($PauseOnExit) {
         Read-Host "Appuie sur Entrée pour fermer"
     }
