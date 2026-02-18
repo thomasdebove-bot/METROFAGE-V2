@@ -51,15 +51,24 @@ try {
         }
 
         Invoke-Step "Build binaire" {
-            Invoke-Cmd -File $Python -Arguments @(
+            $logoEiffage = 'C:\tempo-cr\Logo EIFFAGE.png'
+            $logoSquare = 'C:\tempo-cr\Carré eiffage.png'
+            $logoSquare90 = 'C:\tempo-cr\Carré eiffage 90.png'
+
+            $pyInstallerArgs = @(
                 '-m', 'PyInstaller',
                 '--noconfirm',
                 '--clean',
                 '--onefile',
                 '--name', 'metrofage',
                 '--distpath', $OutDir,
+                '--add-data', "$logoEiffage;.",
+                '--add-data', "$logoSquare;.",
+                '--add-data', "$logoSquare90;.",
                 'app.py'
             )
+
+            Invoke-Cmd -File $Python -Arguments $pyInstallerArgs
         }
 
         Write-Host "`nBuild terminé. Binaire disponible dans: $OutDir" -ForegroundColor Green

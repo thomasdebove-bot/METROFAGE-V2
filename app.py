@@ -25,6 +25,7 @@ import base64
 import json
 import os
 import re
+import sys
 import urllib.parse
 import urllib.request
 import unicodedata
@@ -36,6 +37,27 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 
 app = FastAPI(title="EIFFAGE • CR Synthèse (METRONOME)")
+
+
+def _bundled_asset_path(filename: str) -> str:
+    if getattr(sys, "frozen", False):
+        bundle_dir = getattr(sys, "_MEIPASS", "")
+        if bundle_dir:
+            candidate = os.path.join(bundle_dir, filename)
+            if os.path.exists(candidate):
+                return candidate
+    return ""
+
+
+def _env_or_default_path(env_var: str, default_path: str, bundled_filename: str = "") -> str:
+    env_value = os.getenv(env_var)
+    if env_value:
+        return env_value
+    if bundled_filename:
+        bundled = _bundled_asset_path(bundled_filename)
+        if bundled:
+            return bundled
+    return default_path
 
 # -------------------------
 # PATHS (UNC)
@@ -56,17 +78,20 @@ PROJECTS_PATH = os.getenv(
     "METRONOME_PROJECTS",
     r"\\192.168.10.100\02 - affaires\02.2 - SYNTHESE\ZZ - METRONOME\Projects.csv",
 )
-LOGO_EIFFAGE_PATH = os.getenv(
+LOGO_EIFFAGE_PATH = _env_or_default_path(
     "METRONOME_LOGO_EIFFAGE",
     r"C:\tempo-cr\Logo EIFFAGE.png",
+    "Logo EIFFAGE.png",
 )
-LOGO_EIFFAGE_SQUARE_PATH = os.getenv(
+LOGO_EIFFAGE_SQUARE_PATH = _env_or_default_path(
     "METRONOME_LOGO_EIFFAGE_SQUARE",
     r"C:\tempo-cr\Carré eiffage.png",
+    "Carré eiffage.png",
 )
-LOGO_EIFFAGE_SQUARE_90_PATH = os.getenv(
+LOGO_EIFFAGE_SQUARE_90_PATH = _env_or_default_path(
     "METRONOME_LOGO_EIFFAGE_SQUARE_90",
     r"C:\tempo-cr\Carré eiffage 90.png",
+    "Carré eiffage 90.png",
 )
 LOGO_TEMPO_PATH = os.getenv(
     "METRONOME_LOGO",
