@@ -18,16 +18,27 @@ def _runtime_dir() -> Path:
     return Path(__file__).resolve().parent
 
 
-def _load_runtime_config() -> Dict[str, Any]:
-    """Charge la configuration runtime facultative (metrofage.runtime.json)."""
-    config_path = _runtime_dir() / "metrofage.runtime.json"
-    if not config_path.exists():
-        return {}
+def _runtime_config_candidates() -> list[Path]:
+    """Fichiers de config supportés (nouveau + compatibilité)."""
+    runtime_dir = _runtime_dir()
 
-    try:
-        return json.loads(config_path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
+    app_name = Path(sys.executable).stem if getattr(sys, "frozen", False) else "metrofage"
+    return [
+        runtime_dir / f"{app_name}.runtime.json",
+        runtime_dir / "metrofage.runtime.json",
+    ]
+
+
+def _load_runtime_config() -> Dict[str, Any]:
+    """Charge la configuration runtime facultative."""
+    for config_path in _runtime_config_candidates():
+        if not config_path.exists():
+            continue
+        try:
+            return json.loads(config_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+    return {}
 
 
 def _apply_data_env(config: Dict[str, Any]) -> None:
@@ -37,7 +48,7 @@ def _apply_data_env(config: Dict[str, Any]) -> None:
         return
 
     for key, value in env_config.items():
-        if isinstance(key, str) and key.startswith("METRONOME_") and value:
+        if isinstance(key, str) and key.startswith("METRONOME_") and value is not None and str(value).strip() != "":
             os.environ[key] = str(value)
 
 

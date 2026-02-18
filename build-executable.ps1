@@ -46,8 +46,16 @@ if ($Clean) {
     }
 }
 
-Invoke-Step "Création de l'environnement virtuel" {
-    & $PythonExe -m venv $venvDir
+Invoke-Step "Vérification de Python" {
+    $null = Get-Command $PythonExe -ErrorAction Stop
+}
+
+if (-not (Test-Path $venvPython)) {
+    Invoke-Step "Création de l'environnement virtuel" {
+        & $PythonExe -m venv $venvDir
+    }
+} else {
+    Write-Host "`n==> Environnement virtuel existant réutilisé: $venvDir" -ForegroundColor Cyan
 }
 
 Invoke-Step "Installation des dépendances de build" {
@@ -60,7 +68,12 @@ Invoke-Step "Build de l'exécutable" {
 }
 
 $distDir = Join-Path $root "dist"
-$configPath = Join-Path $distDir "metrofage.runtime.json"
+if (-not (Test-Path $distDir)) {
+    throw "Le dossier dist n'a pas été généré."
+}
+
+$configPath = Join-Path $distDir "$AppName.runtime.json"
+$legacyConfigPath = Join-Path $distDir "metrofage.runtime.json"
 
 $runtimeConfig = [ordered]@{
     metrofage = [ordered]@{
@@ -89,11 +102,18 @@ $runtimeConfig = [ordered]@{
 
 Invoke-Step "Génération du fichier de configuration runtime" {
     $runtimeConfig | ConvertTo-Json -Depth 6 | Out-File -Encoding UTF8 $configPath
+    if ($configPath -ne $legacyConfigPath) {
+        Copy-Item -Force $configPath $legacyConfigPath
+    }
 }
 
 $exePath = Join-Path $distDir "$AppName.exe"
 if (-not (Test-Path $exePath)) {
     $exePath = Join-Path $distDir $AppName
+}
+
+if (-not (Test-Path $exePath)) {
+    throw "L'exécutable attendu n'a pas été trouvé: $exePath"
 }
 
 Write-Host "`nBuild terminé." -ForegroundColor Green
