@@ -117,6 +117,7 @@ COMMENTS_PATH = os.getenv(
     "METRONOME_COMMENTS",
     r"\\192.168.10.100\02 - affaires\02.2 - SYNTHESE\ZZ - METRONOME\Comments.csv",
 )
+IMAGES_ROOT_PATH = os.getenv("METRONOME_IMAGES_ROOT", "")
 
 # -------------------------
 # COLUMN NAMES (METRONOME EXPORTS)
@@ -498,6 +499,56 @@ def _logo_data_url(path: str) -> str:
         return ""
 
 
+def _normalize_file_key(name: str) -> str:
+    raw = (name or "").strip().lower()
+    if not raw:
+        return ""
+    normalized = unicodedata.normalize("NFD", raw)
+    normalized = "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
+    return re.sub(r"\s+", " ", normalized)
+
+
+_image_file_index_cache: Dict[str, Dict[str, str]] = {}
+
+
+def _build_image_index(root: str, max_depth: int = 4, max_files: int = 20000) -> Dict[str, str]:
+    """Index image files by (accent-insensitive) basename for a root directory."""
+    norm_root = os.path.normpath(root)
+    cached = _image_file_index_cache.get(norm_root)
+    if cached is not None:
+        return cached
+
+    out: Dict[str, str] = {}
+    if not os.path.isdir(norm_root):
+        _image_file_index_cache[norm_root] = out
+        return out
+
+    root_depth = norm_root.count(os.sep)
+    scanned = 0
+    image_exts = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".svg"}
+
+    for dirpath, dirnames, filenames in os.walk(norm_root):
+        depth = os.path.normpath(dirpath).count(os.sep) - root_depth
+        if depth >= max_depth:
+            dirnames[:] = []
+
+        for fn in filenames:
+            ext = os.path.splitext(fn)[1].lower()
+            if ext not in image_exts:
+                continue
+            scanned += 1
+            if scanned > max_files:
+                break
+            key = _normalize_file_key(fn)
+            if key and key not in out:
+                out[key] = os.path.join(dirpath, fn)
+        if scanned > max_files:
+            break
+
+    _image_file_index_cache[norm_root] = out
+    return out
+
+
 def _resolve_local_image_path(value: str) -> str:
     """Resolve local image paths with fallbacks for bundled/runtime assets."""
     if not value:
@@ -515,6 +566,8 @@ def _resolve_local_image_path(value: str) -> str:
 
     def _candidate_base_dirs() -> List[str]:
         bases: List[str] = []
+        if IMAGES_ROOT_PATH:
+            bases.append(IMAGES_ROOT_PATH)
         for p in (ENTRIES_PATH, DOCUMENTS_PATH, PROJECTS_PATH):
             if not p:
                 continue
@@ -524,11 +577,21 @@ def _resolve_local_image_path(value: str) -> str:
         bases.append(str(_bundle_dir() / "assets"))
         bases.append(str(Path(__file__).resolve().parent / "assets"))
         bases.append(r"C:\tempo-cr\assets")
-        return bases
 
+        deduped: List[str] = []
+        seen: set[str] = set()
+        for b in bases:
+            nb = os.path.normpath(b)
+            if nb and nb not in seen:
+                seen.add(nb)
+                deduped.append(nb)
+        return deduped
+
+    base_dirs = _candidate_base_dirs()
     candidates: List[str] = [raw]
+
     if os.path.basename(raw) == raw:
-        for base in _candidate_base_dirs():
+        for base in base_dirs:
             candidates.append(os.path.join(base, raw))
 
     for candidate in candidates:
@@ -537,12 +600,19 @@ def _resolve_local_image_path(value: str) -> str:
             return normalized
 
     basename = os.path.basename(raw)
-    if basename:
-        for base in _candidate_base_dirs():
-            candidate = os.path.join(base, basename)
-            normalized = os.path.normpath(candidate)
-            if os.path.exists(normalized):
-                return normalized
+    if not basename:
+        return ""
+
+    target_key = _normalize_file_key(basename)
+    if not target_key:
+        return ""
+
+    for base in base_dirs:
+        idx = _build_image_index(base)
+        found = idx.get(target_key)
+        if found and os.path.exists(found):
+            return os.path.normpath(found)
+
     return ""
 
 

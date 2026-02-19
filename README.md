@@ -43,3 +43,11 @@ Vous pouvez forcer un dossier precis :
 ## Depannage
 
 Si vous voyez `Could not import module "app"`, recompilez avec la version la plus recente de `run_server.py` puis relancez `build_exe.ps1`.
+
+- Si les images des fiches (taches/memos/projets) ne s'affichent pas sur un autre PC, definissez le dossier racine des images:
+
+```powershell
+$env:METRONOME_IMAGES_ROOT = "C:\tempo-cr"
+```
+
+Le moteur cherchera alors les images par nom de fichier (recherche recursive) dans ce dossier en plus des chemins habituels.
