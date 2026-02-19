@@ -16,6 +16,12 @@
 ./build_exe.ps1 -ExeName Metrofage
 ```
 
-Le script installe `pyinstaller`, construit l'exécutable `dist/Metrofage.exe` et embarque les logos.
+Le script installe `pyinstaller`, construit `dist/Metrofage.exe` et embarque les logos.
 
-> Vous pouvez toujours surcharger les chemins via les variables d'environnement `METRONOME_*` sur le poste cible.
+## Exécution de l'application
+
+- Double-cliquez `dist/Metrofage.exe`.
+- L'exécutable démarre l'API sur `http://127.0.0.1:8090` et tente d'ouvrir le navigateur automatiquement.
+- En cas d'erreur au démarrage, un fichier `metrofage-error.log` est écrit dans le dossier courant.
+
+> Vous pouvez surcharger les chemins via les variables d'environnement `METRONOME_*` sur le poste cible.
