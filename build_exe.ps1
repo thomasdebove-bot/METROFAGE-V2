@@ -118,7 +118,7 @@ try {
         }
     }
     if ($missingInAssets.Count -gt 0) {
-        throw "Logos manquants dans $effectiveAssetsDir:`n - $($missingInAssets -join "`n - ")"
+        throw "Logos manquants dans ${effectiveAssetsDir}:`n - $($missingInAssets -join "`n - ")"
     }
 
     Write-Host "[1/3] Installation des dépendances de build..."
