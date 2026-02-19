@@ -25,10 +25,12 @@ import base64
 import json
 import os
 import re
+import sys
 import urllib.parse
 import urllib.request
 import unicodedata
 from datetime import date, timedelta
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
@@ -36,6 +38,21 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 
 app = FastAPI(title="EIFFAGE • CR Synthèse (METRONOME)")
+
+
+def _bundle_dir() -> Path:
+    """Return the runtime directory for bundled resources when frozen.
+
+    For PyInstaller one-file executables, files added via --add-data are
+    extracted under sys._MEIPASS.
+    """
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return Path(getattr(sys, "_MEIPASS"))
+    return Path(__file__).resolve().parent
+
+
+def _default_logo_path(filename: str) -> str:
+    return str(_bundle_dir() / "assets" / filename)
 
 # -------------------------
 # PATHS (UNC)
@@ -58,19 +75,19 @@ PROJECTS_PATH = os.getenv(
 )
 LOGO_EIFFAGE_PATH = os.getenv(
     "METRONOME_LOGO_EIFFAGE",
-    r"C:\tempo-cr\Logo EIFFAGE.png",
+    _default_logo_path("Logo EIFFAGE.png"),
 )
 LOGO_EIFFAGE_SQUARE_PATH = os.getenv(
     "METRONOME_LOGO_EIFFAGE_SQUARE",
-    r"C:\tempo-cr\Carré eiffage.png",
+    _default_logo_path("Carré eiffage.png"),
 )
 LOGO_EIFFAGE_SQUARE_90_PATH = os.getenv(
     "METRONOME_LOGO_EIFFAGE_SQUARE_90",
-    r"C:\tempo-cr\Carré eiffage 90.png",
+    _default_logo_path("Carré eiffage 90.png"),
 )
 LOGO_TEMPO_PATH = os.getenv(
     "METRONOME_LOGO",
-    r"\\192.168.10.100\02 - affaires\02.2 - SYNTHESE\ZZ - METRONOME\Content\Logo TEMPO.png",
+    _default_logo_path("Logo TEMPO.png"),
 )
 USERS_PATH = os.getenv(
     "METRONOME_USERS",
@@ -82,15 +99,15 @@ PACKAGES_PATH = os.getenv(
 )
 LOGO_RYTHME_PATH = os.getenv(
     "METRONOME_LOGO_RYTHME",
-    r"\\192.168.10.100\02 - affaires\02.2 - SYNTHESE\ZZ - METRONOME\Content\Rythme.png",
+    _default_logo_path("Rythme.png"),
 )
 LOGO_T_MARK_PATH = os.getenv(
     "METRONOME_LOGO_TMARK",
-    r"\\192.168.10.100\02 - affaires\02.2 - SYNTHESE\ZZ - METRONOME\Content\T logo.png",
+    _default_logo_path("T logo.png"),
 )
 LOGO_QR_PATH = os.getenv(
     "METRONOME_QR",
-    r"\\192.168.10.100\02 - affaires\02.2 - SYNTHESE\ZZ - METRONOME\Content\QR CODE.png",
+    _default_logo_path("QR CODE.png"),
 )
 DOCUMENTS_PATH = os.getenv(
     "METRONOME_DOCUMENTS",
