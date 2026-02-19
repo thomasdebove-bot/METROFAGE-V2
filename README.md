@@ -37,6 +37,8 @@ Vous pouvez forcer un dossier precis :
 - L'executable demarre l'API sur `http://127.0.0.1:8090` et tente d'ouvrir le navigateur.
 - En cas d'erreur au demarrage, un fichier `metrofage-error.log` est ecrit dans le dossier courant.
 
+- Les images dans le HTML acceptent maintenant: `http(s)`, `file://` et chemins locaux Windows (elles sont converties en data URI).
+
 
 ## Depannage
 

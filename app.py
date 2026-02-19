@@ -500,6 +500,24 @@ def _logo_data_url(path: str) -> str:
         return ""
 
 
+def _img_src_from_ref(value: str) -> str:
+    """Return an embeddable image src from http/file/local references."""
+    if not value:
+        return ""
+    raw = str(value).strip().strip("\"'")
+    if not raw:
+        return ""
+    low = raw.lower()
+    if low.startswith(("http://", "https://", "data:image/")):
+        return raw
+    if low.startswith("file://"):
+        path = urllib.parse.unquote(raw[7:])
+        if os.name == "nt" and path.startswith("/") and len(path) > 2 and path[2] == ":":
+            path = path[1:]
+        return _logo_data_url(path)
+    return _logo_data_url(raw)
+
+
 def _meeting_sequence_for_project(
     meetings_df: pd.DataFrame, meeting_id: str
 ) -> Tuple[int, int]:
@@ -554,21 +572,52 @@ def detect_memo_images_column(df: pd.DataFrame) -> Optional[str]:
 
 
 def parse_image_urls_any(v) -> List[str]:
-    """Parse robust URLs (http/https) from a cell."""
+    """Parse robust image refs (http/https/file/local path) from a cell."""
     if v is None or (isinstance(v, float) and pd.isna(v)):
         return []
-    s = str(v)
-    if not s.strip() or s.strip().lower() == "nan":
-        return []
-    urls = re.findall(r"https?://[^\s,\]\)\"\'<>]+", s)
-    out, seen = [], set()
-    for u in urls:
-        u = u.strip()
-        if u and u not in seen:
-            out.append(u)
-            seen.add(u)
-    return out
 
+    raw = str(v)
+    if not raw.strip() or raw.strip().lower() == "nan":
+        return []
+
+    candidates: List[str] = []
+    candidates.extend(re.findall(r"https?://[^\s,\]\)\"\'<>]+", raw))
+    candidates.extend(re.findall(r"file://[^\s,\]\)\"\'<>]+", raw, flags=re.IGNORECASE))
+
+    try:
+        payload = json.loads(raw)
+        if isinstance(payload, list):
+            for item in payload:
+                if isinstance(item, dict):
+                    for key in ("url", "src", "path", "filename"):
+                        val = item.get(key)
+                        if isinstance(val, str) and val.strip():
+                            candidates.append(val.strip())
+                elif isinstance(item, str) and item.strip():
+                    candidates.append(item.strip())
+        elif isinstance(payload, dict):
+            for key in ("url", "src", "path", "filename"):
+                val = payload.get(key)
+                if isinstance(val, str) and val.strip():
+                    candidates.append(val.strip())
+    except Exception:
+        pass
+
+    tokens = [t.strip().strip("\"'") for t in re.split(r"[,;\n]+", raw) if t.strip()]
+    candidates.extend(tokens)
+
+    out, seen = [], set()
+    for c in candidates:
+        c = str(c).strip()
+        if not c or c.lower() == "nan":
+            continue
+        src = _img_src_from_ref(c)
+        if not src:
+            continue
+        if c not in seen:
+            out.append(c)
+            seen.add(c)
+    return out
 
 def _format_entry_text_html(v) -> str:
     """Normalize text for tasks/memos and preserve bullet/enumeration line breaks in HTML."""
@@ -611,7 +660,10 @@ def render_images_gallery(urls: List[str], print_mode: bool) -> str:
     max_imgs = 3 if print_mode else 10
     thumbs = []
     for u in urls[:max_imgs]:
-        uu = _escape(u)
+        src = _img_src_from_ref(u)
+        if not src:
+            continue
+        uu = _escape(src)
         thumbs.append(
             f"""
           <a class="imgThumb" href="{uu}" target="_blank" rel="noopener">
@@ -2438,9 +2490,10 @@ def render_cr(
                 lot_list = ["SYNTHESE"]
             lot_display = _escape(", ".join(lot_list)) if lot_list else "—"
             company_logo = company_info.get("logo", "")
+            company_logo_src = _img_src_from_ref(company_logo)
             logo_html = (
-                f"<img class='coLogo' src='{_escape(company_logo)}' alt='' loading='lazy' />"
-                if company_logo and company_logo.startswith("http")
+                f"<img class='coLogo' src='{_escape(company_logo_src)}' alt='' loading='lazy' />"
+                if company_logo_src
                 else ""
             )
             rows.append(
@@ -2689,10 +2742,16 @@ def render_cr(
         img_urls = parse_image_urls_any(r.get(memo_img_col)) if memo_img_col else []
         thumbs = ""
         if img_urls:
-            thumbs_imgs = "".join(
-                f"<span class='thumbAWrap' data-thumb><a class='thumbA' href='{_escape(u)}' target='_blank' rel='noopener'><img class='thumb' src='{_escape(u)}' alt='' /></a><button type='button' class='thumbRemove noPrint' title='Supprimer'>×</button><span class='thumbHandle' title='Déplacer / redimensionner'></span></span>"
-                for u in img_urls[:6]
-            )
+            thumbs_items = []
+            for u in img_urls[:6]:
+                src = _img_src_from_ref(u)
+                if not src:
+                    continue
+                us = _escape(src)
+                thumbs_items.append(
+                    f"<span class='thumbAWrap' data-thumb><a class='thumbA' href='{us}' target='_blank' rel='noopener'><img class='thumb' src='{us}' alt='' /></a><button type='button' class='thumbRemove noPrint' title='Supprimer'>×</button><span class='thumbHandle' title='Déplacer / redimensionner'></span></span>"
+                )
+            thumbs_imgs = "".join(thumbs_items)
             thumbs = f"<div class='thumbs' data-gallery>{thumbs_imgs}</div>"
 
         row_cls = "rowItem rowMeeting" if is_meeting else "rowItem"
