@@ -22,13 +22,16 @@ def main() -> None:
     host = os.getenv("METROFAGE_HOST", "127.0.0.1")
     port = int(os.getenv("METROFAGE_PORT", "8090"))
 
+    # Import direct de l'application ASGI pour éviter l'échec
+    # d'import dynamique "app:app" dans l'exécutable PyInstaller.
+    from app import app as asgi_app
+
     try:
         webbrowser.open(f"http://{host}:{port}")
     except Exception:
-        # Non bloquant : on continue même si le navigateur ne s'ouvre pas.
         pass
 
-    uvicorn.run("app:app", host=host, port=port, reload=False, log_level="info")
+    uvicorn.run(asgi_app, host=host, port=port, reload=False, log_level="info")
 
 
 if __name__ == "__main__":
@@ -46,7 +49,6 @@ if __name__ == "__main__":
         print(details)
         _write_error_log(details)
 
-        # Si lancé en double-clic, éviter la fermeture immédiate de la console.
         if sys.stdin is not None and sys.stdin.isatty():
             input("\nAppuyez sur Entrée pour fermer...")
         raise

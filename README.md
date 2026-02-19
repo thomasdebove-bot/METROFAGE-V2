@@ -36,3 +36,8 @@ Vous pouvez forcer un dossier precis :
 - Double-cliquez `dist/Metrofage.exe`.
 - L'executable demarre l'API sur `http://127.0.0.1:8090` et tente d'ouvrir le navigateur.
 - En cas d'erreur au demarrage, un fichier `metrofage-error.log` est ecrit dans le dossier courant.
+
+
+## Depannage
+
+Si vous voyez `Could not import module "app"`, recompilez avec la version la plus recente de `run_server.py` puis relancez `build_exe.ps1`.
