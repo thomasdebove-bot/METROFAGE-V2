@@ -79,11 +79,11 @@ LOGO_EIFFAGE_PATH = os.getenv(
 )
 LOGO_EIFFAGE_SQUARE_PATH = os.getenv(
     "METRONOME_LOGO_EIFFAGE_SQUARE",
-    _default_logo_path("Carré eiffage.png"),
+    _default_logo_path("Carre eiffage.png"),
 )
 LOGO_EIFFAGE_SQUARE_90_PATH = os.getenv(
     "METRONOME_LOGO_EIFFAGE_SQUARE_90",
-    _default_logo_path("Carré eiffage 90.png"),
+    _default_logo_path("Carre eiffage 90.png"),
 )
 LOGO_TEMPO_PATH = os.getenv(
     "METRONOME_LOGO",
