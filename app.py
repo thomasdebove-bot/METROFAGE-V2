@@ -500,18 +500,33 @@ def _logo_data_url(path: str) -> str:
 
 
 def _normalize_file_key(name: str) -> str:
-    raw = (name or "").strip().lower()
+    raw = (name or "").strip()
     if not raw:
         return ""
-    normalized = unicodedata.normalize("NFD", raw)
-    normalized = "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
-    return re.sub(r"\s+", " ", normalized)
+
+    def _canon(text: str) -> str:
+        t = text.strip().lower()
+        normalized = unicodedata.normalize("NFD", t)
+        normalized = "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
+        return re.sub(r"\s+", " ", normalized)
+
+    key = _canon(raw)
+    # Common mojibake fallback (e.g. CarrÃ© -> Carré)
+    try:
+        repaired = raw.encode("latin-1").decode("utf-8")
+    except Exception:
+        repaired = ""
+    if repaired:
+        fixed = _canon(repaired)
+        if fixed and fixed != key:
+            return fixed
+    return key
 
 
 _image_file_index_cache: Dict[str, Dict[str, str]] = {}
 
 
-def _build_image_index(root: str, max_depth: int = 4, max_files: int = 20000) -> Dict[str, str]:
+def _build_image_index(root: str, max_depth: int = 8, max_files: int = 100000) -> Dict[str, str]:
     """Index image files by (accent-insensitive) basename for a root directory."""
     norm_root = os.path.normpath(root)
     cached = _image_file_index_cache.get(norm_root)
@@ -559,10 +574,20 @@ def _resolve_local_image_path(value: str) -> str:
         return ""
 
     low = raw.lower()
+    if low.startswith("http://") or low.startswith("https://") or low.startswith("data:image/"):
+        return ""
+
     if low.startswith("file://"):
         raw = urllib.parse.unquote(raw[7:])
         if os.name == "nt" and raw.startswith("/") and len(raw) > 2 and raw[2] == ":":
             raw = raw[1:]
+    else:
+        raw = urllib.parse.unquote(raw)
+
+    # Remove URL query/hash suffixes that can be present in CSV exports.
+    raw = raw.split("#", 1)[0].split("?", 1)[0].strip()
+    if not raw:
+        return ""
 
     def _candidate_base_dirs() -> List[str]:
         bases: List[str] = []
