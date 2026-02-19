@@ -3,6 +3,7 @@ Param(
     [string]$EntryPoint = "run_server.py",
     [string]$ExeName = "Metrofage",
     [string]$AssetsDir = "assets",
+    [string]$TempoCrAssetsDir = "C:\tempo-cr\assets",
     [string]$IconPath = "",
     [switch]$Clean
 )
@@ -55,6 +56,21 @@ try {
     if (-not $scriptRoot) { $scriptRoot = (Get-Location).Path }
 
     $effectiveAssetsDir = $AssetsDir
+
+    # Résolution robuste du dossier assets:
+    # - chemin absolu fourni
+    # - chemin relatif au dossier du script
+    # - fallback explicite C:\tempo-cr\assets
+    if (-not [System.IO.Path]::IsPathRooted($effectiveAssetsDir)) {
+        $candidateFromScript = Join-Path $scriptRoot $effectiveAssetsDir
+        if (Test-Path $candidateFromScript) {
+            $effectiveAssetsDir = $candidateFromScript
+        }
+    }
+
+    if (-not (Test-Path $effectiveAssetsDir) -and (Test-Path $TempoCrAssetsDir)) {
+        $effectiveAssetsDir = $TempoCrAssetsDir
+    }
     $requiredLogos = @(
         @{ Name = "Logo EIFFAGE.png"; Env = "METRONOME_LOGO_EIFFAGE"; Default = "C:\tempo-cr\Logo EIFFAGE.png" },
         @{ Name = "Carré eiffage.png"; Env = "METRONOME_LOGO_EIFFAGE_SQUARE"; Default = "C:\tempo-cr\Carré eiffage.png" },
@@ -77,6 +93,7 @@ try {
                 (Join-Path $scriptRoot $name),
                 (Join-Path (Get-Location).Path $name),
                 (Join-Path $scriptRoot "assets\$name"),
+                (Join-Path $TempoCrAssetsDir $name),
                 $logo.Default
             )
 

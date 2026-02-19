@@ -21,8 +21,15 @@
 ### Option B : sans dossier `assets/`
 
 Le script tente automatiquement de retrouver les logos via :
+- le paramètre/fallback `C:\tempo-cr\assets`
 - les variables d'environnement `METRONOME_LOGO_*`
 - les chemins par défaut du projet (dont `C:\tempo-cr\...` et le partage réseau historique)
+
+Vous pouvez forcer un dossier précis :
+
+```powershell
+./build_exe.ps1 -AssetsDir "C:\tempo-cr\assets" -ExeName Metrofage
+```
 
 ## Exécution de l'application
 
