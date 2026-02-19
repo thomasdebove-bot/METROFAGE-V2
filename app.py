@@ -480,15 +480,13 @@ def _zone_key(value: str) -> str:
     return re.sub(r"\s+", " ", normalized)
 
 def _logo_data_url(path: str) -> str:
-    if not path:
-        return ""
-    normalized = os.path.normpath(path)
-    if not os.path.exists(normalized):
+    resolved = _resolve_local_image_path(path)
+    if not resolved:
         return ""
     try:
-        with open(normalized, "rb") as f:
+        with open(resolved, "rb") as f:
             data = base64.b64encode(f.read()).decode("utf-8")
-        ext = os.path.splitext(normalized)[1].lower()
+        ext = os.path.splitext(resolved)[1].lower()
         if ext in {".jpg", ".jpeg"}:
             mime = "image/jpeg"
         elif ext == ".svg":
@@ -498,6 +496,54 @@ def _logo_data_url(path: str) -> str:
         return f"data:{mime};base64,{data}"
     except Exception:
         return ""
+
+
+def _resolve_local_image_path(value: str) -> str:
+    """Resolve local image paths with fallbacks for bundled/runtime assets."""
+    if not value:
+        return ""
+
+    raw = str(value).strip().strip("\"'")
+    if not raw:
+        return ""
+
+    low = raw.lower()
+    if low.startswith("file://"):
+        raw = urllib.parse.unquote(raw[7:])
+        if os.name == "nt" and raw.startswith("/") and len(raw) > 2 and raw[2] == ":":
+            raw = raw[1:]
+
+    def _candidate_base_dirs() -> List[str]:
+        bases: List[str] = []
+        for p in (ENTRIES_PATH, DOCUMENTS_PATH, PROJECTS_PATH):
+            if not p:
+                continue
+            parent = os.path.dirname(p)
+            if parent:
+                bases.append(parent)
+        bases.append(str(_bundle_dir() / "assets"))
+        bases.append(str(Path(__file__).resolve().parent / "assets"))
+        bases.append(r"C:\tempo-cr\assets")
+        return bases
+
+    candidates: List[str] = [raw]
+    if os.path.basename(raw) == raw:
+        for base in _candidate_base_dirs():
+            candidates.append(os.path.join(base, raw))
+
+    for candidate in candidates:
+        normalized = os.path.normpath(candidate)
+        if os.path.exists(normalized):
+            return normalized
+
+    basename = os.path.basename(raw)
+    if basename:
+        for base in _candidate_base_dirs():
+            candidate = os.path.join(base, basename)
+            normalized = os.path.normpath(candidate)
+            if os.path.exists(normalized):
+                return normalized
+    return ""
 
 
 def _img_src_from_ref(value: str) -> str:
@@ -511,10 +557,7 @@ def _img_src_from_ref(value: str) -> str:
     if low.startswith(("http://", "https://", "data:image/")):
         return raw
     if low.startswith("file://"):
-        path = urllib.parse.unquote(raw[7:])
-        if os.name == "nt" and path.startswith("/") and len(path) > 2 and path[2] == ":":
-            path = path[1:]
-        return _logo_data_url(path)
+        return _logo_data_url(raw)
     return _logo_data_url(raw)
 
 
