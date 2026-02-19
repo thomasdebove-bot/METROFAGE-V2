@@ -2,7 +2,9 @@
 
 ## Générer un `.exe` Windows avec les logos embarqués
 
-1. Placez les logos dans le dossier `assets/` (à la racine du projet) avec ces noms exacts:
+### Option A (recommandée) : dossier `assets/`
+
+1. Placez les logos dans `assets/` (à la racine du projet) avec ces noms exacts :
    - `Logo EIFFAGE.png`
    - `Carré eiffage.png`
    - `Carré eiffage 90.png`
@@ -10,13 +12,17 @@
    - `Rythme.png`
    - `T logo.png`
    - `QR CODE.png`
-2. Lancez PowerShell puis exécutez:
+2. Lancez :
 
 ```powershell
 ./build_exe.ps1 -ExeName Metrofage
 ```
 
-Le script installe `pyinstaller`, construit `dist/Metrofage.exe` et embarque les logos.
+### Option B : sans dossier `assets/`
+
+Le script tente automatiquement de retrouver les logos via :
+- les variables d'environnement `METRONOME_LOGO_*`
+- les chemins par défaut du projet (dont `C:\tempo-cr\...` et le partage réseau historique)
 
 ## Exécution de l'application
 
