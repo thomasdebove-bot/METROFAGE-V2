@@ -52,4 +52,7 @@ $env:METRONOME_IMAGES_ROOT = "C:\tempo-cr"
 
 Le moteur cherchera alors les images par nom de fichier (recherche recursive) dans ce dossier en plus des chemins habituels.
 
+- Par defaut, le resolveur cherche aussi dans le partage reseau: `\\192.168.10.100\02 - affaires\02.2 - SYNTHESE\ZZ - METRONOME\Content`.
+- Vous pouvez surcharger ce chemin avec la variable d'environnement `METRONOME_CONTENT`.
+
 - Le resolveur gere aussi les noms avec accents/encodage (ex: `Carré` / `CarrÃ©`) et les chemins contenant `?` ou `#` (exports CSV).

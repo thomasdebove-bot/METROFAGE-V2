@@ -118,6 +118,10 @@ COMMENTS_PATH = os.getenv(
     r"\\192.168.10.100\02 - affaires\02.2 - SYNTHESE\ZZ - METRONOME\Comments.csv",
 )
 IMAGES_ROOT_PATH = os.getenv("METRONOME_IMAGES_ROOT", "")
+CONTENT_PATH = os.getenv(
+    "METRONOME_CONTENT",
+    r"\\192.168.10.100\02 - affaires\02.2 - SYNTHESE\ZZ - METRONOME\Content",
+)
 
 # -------------------------
 # COLUMN NAMES (METRONOME EXPORTS)
@@ -599,6 +603,9 @@ def _resolve_local_image_path(value: str) -> str:
             parent = os.path.dirname(p)
             if parent:
                 bases.append(parent)
+        # Shared METRONOME media repository (network share)
+        if CONTENT_PATH:
+            bases.append(CONTENT_PATH)
         bases.append(str(_bundle_dir() / "assets"))
         bases.append(str(Path(__file__).resolve().parent / "assets"))
         bases.append(r"C:\tempo-cr\assets")
