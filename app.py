@@ -25,10 +25,12 @@ import base64
 import json
 import os
 import re
+import sys
 import urllib.parse
 import urllib.request
 import unicodedata
 from datetime import date, timedelta
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
@@ -36,6 +38,21 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 
 app = FastAPI(title="EIFFAGE • CR Synthèse (METRONOME)")
+
+
+def _bundle_dir() -> Path:
+    """Return the runtime directory for bundled resources when frozen.
+
+    For PyInstaller one-file executables, files added via --add-data are
+    extracted under sys._MEIPASS.
+    """
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return Path(getattr(sys, "_MEIPASS"))
+    return Path(__file__).resolve().parent
+
+
+def _default_logo_path(filename: str) -> str:
+    return str(_bundle_dir() / "assets" / filename)
 
 # -------------------------
 # PATHS (UNC)
@@ -58,19 +75,19 @@ PROJECTS_PATH = os.getenv(
 )
 LOGO_EIFFAGE_PATH = os.getenv(
     "METRONOME_LOGO_EIFFAGE",
-    r"C:\tempo-cr\Logo EIFFAGE.png",
+    _default_logo_path("Logo EIFFAGE.png"),
 )
 LOGO_EIFFAGE_SQUARE_PATH = os.getenv(
     "METRONOME_LOGO_EIFFAGE_SQUARE",
-    r"C:\tempo-cr\Carré eiffage.png",
+    _default_logo_path("Carre eiffage.png"),
 )
 LOGO_EIFFAGE_SQUARE_90_PATH = os.getenv(
     "METRONOME_LOGO_EIFFAGE_SQUARE_90",
-    r"C:\tempo-cr\Carré eiffage 90.png",
+    _default_logo_path("Carre eiffage 90.png"),
 )
 LOGO_TEMPO_PATH = os.getenv(
     "METRONOME_LOGO",
-    r"\\192.168.10.100\02 - affaires\02.2 - SYNTHESE\ZZ - METRONOME\Content\Logo TEMPO.png",
+    _default_logo_path("Logo TEMPO.png"),
 )
 USERS_PATH = os.getenv(
     "METRONOME_USERS",
@@ -82,15 +99,15 @@ PACKAGES_PATH = os.getenv(
 )
 LOGO_RYTHME_PATH = os.getenv(
     "METRONOME_LOGO_RYTHME",
-    r"\\192.168.10.100\02 - affaires\02.2 - SYNTHESE\ZZ - METRONOME\Content\Rythme.png",
+    _default_logo_path("Rythme.png"),
 )
 LOGO_T_MARK_PATH = os.getenv(
     "METRONOME_LOGO_TMARK",
-    r"\\192.168.10.100\02 - affaires\02.2 - SYNTHESE\ZZ - METRONOME\Content\T logo.png",
+    _default_logo_path("T logo.png"),
 )
 LOGO_QR_PATH = os.getenv(
     "METRONOME_QR",
-    r"\\192.168.10.100\02 - affaires\02.2 - SYNTHESE\ZZ - METRONOME\Content\QR CODE.png",
+    _default_logo_path("QR CODE.png"),
 )
 DOCUMENTS_PATH = os.getenv(
     "METRONOME_DOCUMENTS",
@@ -99,6 +116,11 @@ DOCUMENTS_PATH = os.getenv(
 COMMENTS_PATH = os.getenv(
     "METRONOME_COMMENTS",
     r"\\192.168.10.100\02 - affaires\02.2 - SYNTHESE\ZZ - METRONOME\Comments.csv",
+)
+IMAGES_ROOT_PATH = os.getenv("METRONOME_IMAGES_ROOT", "")
+CONTENT_PATH = os.getenv(
+    "METRONOME_CONTENT",
+    r"\\192.168.10.100\02 - affaires\02.2 - SYNTHESE\ZZ - METRONOME\Content",
 )
 
 # -------------------------
@@ -463,15 +485,13 @@ def _zone_key(value: str) -> str:
     return re.sub(r"\s+", " ", normalized)
 
 def _logo_data_url(path: str) -> str:
-    if not path:
-        return ""
-    normalized = os.path.normpath(path)
-    if not os.path.exists(normalized):
+    resolved = _resolve_local_image_path(path)
+    if not resolved:
         return ""
     try:
-        with open(normalized, "rb") as f:
+        with open(resolved, "rb") as f:
             data = base64.b64encode(f.read()).decode("utf-8")
-        ext = os.path.splitext(normalized)[1].lower()
+        ext = os.path.splitext(resolved)[1].lower()
         if ext in {".jpg", ".jpeg"}:
             mime = "image/jpeg"
         elif ext == ".svg":
@@ -481,6 +501,166 @@ def _logo_data_url(path: str) -> str:
         return f"data:{mime};base64,{data}"
     except Exception:
         return ""
+
+
+def _normalize_file_key(name: str) -> str:
+    raw = (name or "").strip()
+    if not raw:
+        return ""
+
+    def _canon(text: str) -> str:
+        t = text.strip().lower()
+        normalized = unicodedata.normalize("NFD", t)
+        normalized = "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
+        return re.sub(r"\s+", " ", normalized)
+
+    key = _canon(raw)
+    # Common mojibake fallback (e.g. CarrÃ© -> Carré)
+    try:
+        repaired = raw.encode("latin-1").decode("utf-8")
+    except Exception:
+        repaired = ""
+    if repaired:
+        fixed = _canon(repaired)
+        if fixed and fixed != key:
+            return fixed
+    return key
+
+
+_image_file_index_cache: Dict[str, Dict[str, str]] = {}
+
+
+def _build_image_index(root: str, max_depth: int = 8, max_files: int = 100000) -> Dict[str, str]:
+    """Index image files by (accent-insensitive) basename for a root directory."""
+    norm_root = os.path.normpath(root)
+    cached = _image_file_index_cache.get(norm_root)
+    if cached is not None:
+        return cached
+
+    out: Dict[str, str] = {}
+    if not os.path.isdir(norm_root):
+        _image_file_index_cache[norm_root] = out
+        return out
+
+    root_depth = norm_root.count(os.sep)
+    scanned = 0
+    image_exts = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".svg"}
+
+    for dirpath, dirnames, filenames in os.walk(norm_root):
+        depth = os.path.normpath(dirpath).count(os.sep) - root_depth
+        if depth >= max_depth:
+            dirnames[:] = []
+
+        for fn in filenames:
+            ext = os.path.splitext(fn)[1].lower()
+            if ext not in image_exts:
+                continue
+            scanned += 1
+            if scanned > max_files:
+                break
+            key = _normalize_file_key(fn)
+            if key and key not in out:
+                out[key] = os.path.join(dirpath, fn)
+        if scanned > max_files:
+            break
+
+    _image_file_index_cache[norm_root] = out
+    return out
+
+
+def _resolve_local_image_path(value: str) -> str:
+    """Resolve local image paths with fallbacks for bundled/runtime assets."""
+    if not value:
+        return ""
+
+    raw = str(value).strip().strip("\"'")
+    if not raw:
+        return ""
+
+    low = raw.lower()
+    if low.startswith("http://") or low.startswith("https://") or low.startswith("data:image/"):
+        return ""
+
+    if low.startswith("file://"):
+        raw = urllib.parse.unquote(raw[7:])
+        if os.name == "nt" and raw.startswith("/") and len(raw) > 2 and raw[2] == ":":
+            raw = raw[1:]
+    else:
+        raw = urllib.parse.unquote(raw)
+
+    # Remove URL query/hash suffixes that can be present in CSV exports.
+    raw = raw.split("#", 1)[0].split("?", 1)[0].strip()
+    if not raw:
+        return ""
+
+    def _candidate_base_dirs() -> List[str]:
+        bases: List[str] = []
+        if IMAGES_ROOT_PATH:
+            bases.append(IMAGES_ROOT_PATH)
+        for p in (ENTRIES_PATH, DOCUMENTS_PATH, PROJECTS_PATH):
+            if not p:
+                continue
+            parent = os.path.dirname(p)
+            if parent:
+                bases.append(parent)
+        # Shared METRONOME media repository (network share)
+        if CONTENT_PATH:
+            bases.append(CONTENT_PATH)
+        bases.append(str(_bundle_dir() / "assets"))
+        bases.append(str(Path(__file__).resolve().parent / "assets"))
+        bases.append(r"C:\tempo-cr\assets")
+
+        deduped: List[str] = []
+        seen: set[str] = set()
+        for b in bases:
+            nb = os.path.normpath(b)
+            if nb and nb not in seen:
+                seen.add(nb)
+                deduped.append(nb)
+        return deduped
+
+    base_dirs = _candidate_base_dirs()
+    candidates: List[str] = [raw]
+
+    if os.path.basename(raw) == raw:
+        for base in base_dirs:
+            candidates.append(os.path.join(base, raw))
+
+    for candidate in candidates:
+        normalized = os.path.normpath(candidate)
+        if os.path.exists(normalized):
+            return normalized
+
+    basename = os.path.basename(raw)
+    if not basename:
+        return ""
+
+    target_key = _normalize_file_key(basename)
+    if not target_key:
+        return ""
+
+    for base in base_dirs:
+        idx = _build_image_index(base)
+        found = idx.get(target_key)
+        if found and os.path.exists(found):
+            return os.path.normpath(found)
+
+    return ""
+
+
+def _img_src_from_ref(value: str) -> str:
+    """Return an embeddable image src from http/file/local references."""
+    if not value:
+        return ""
+    raw = str(value).strip().strip("\"'")
+    if not raw:
+        return ""
+    low = raw.lower()
+    if low.startswith(("http://", "https://", "data:image/")):
+        return raw
+    if low.startswith("file://"):
+        return _logo_data_url(raw)
+    return _logo_data_url(raw)
 
 
 def _meeting_sequence_for_project(
@@ -537,21 +717,52 @@ def detect_memo_images_column(df: pd.DataFrame) -> Optional[str]:
 
 
 def parse_image_urls_any(v) -> List[str]:
-    """Parse robust URLs (http/https) from a cell."""
+    """Parse robust image refs (http/https/file/local path) from a cell."""
     if v is None or (isinstance(v, float) and pd.isna(v)):
         return []
-    s = str(v)
-    if not s.strip() or s.strip().lower() == "nan":
-        return []
-    urls = re.findall(r"https?://[^\s,\]\)\"\'<>]+", s)
-    out, seen = [], set()
-    for u in urls:
-        u = u.strip()
-        if u and u not in seen:
-            out.append(u)
-            seen.add(u)
-    return out
 
+    raw = str(v)
+    if not raw.strip() or raw.strip().lower() == "nan":
+        return []
+
+    candidates: List[str] = []
+    candidates.extend(re.findall(r"https?://[^\s,\]\)\"\'<>]+", raw))
+    candidates.extend(re.findall(r"file://[^\s,\]\)\"\'<>]+", raw, flags=re.IGNORECASE))
+
+    try:
+        payload = json.loads(raw)
+        if isinstance(payload, list):
+            for item in payload:
+                if isinstance(item, dict):
+                    for key in ("url", "src", "path", "filename"):
+                        val = item.get(key)
+                        if isinstance(val, str) and val.strip():
+                            candidates.append(val.strip())
+                elif isinstance(item, str) and item.strip():
+                    candidates.append(item.strip())
+        elif isinstance(payload, dict):
+            for key in ("url", "src", "path", "filename"):
+                val = payload.get(key)
+                if isinstance(val, str) and val.strip():
+                    candidates.append(val.strip())
+    except Exception:
+        pass
+
+    tokens = [t.strip().strip("\"'") for t in re.split(r"[,;\n]+", raw) if t.strip()]
+    candidates.extend(tokens)
+
+    out, seen = [], set()
+    for c in candidates:
+        c = str(c).strip()
+        if not c or c.lower() == "nan":
+            continue
+        src = _img_src_from_ref(c)
+        if not src:
+            continue
+        if c not in seen:
+            out.append(c)
+            seen.add(c)
+    return out
 
 def _format_entry_text_html(v) -> str:
     """Normalize text for tasks/memos and preserve bullet/enumeration line breaks in HTML."""
@@ -594,7 +805,10 @@ def render_images_gallery(urls: List[str], print_mode: bool) -> str:
     max_imgs = 3 if print_mode else 10
     thumbs = []
     for u in urls[:max_imgs]:
-        uu = _escape(u)
+        src = _img_src_from_ref(u)
+        if not src:
+            continue
+        uu = _escape(src)
         thumbs.append(
             f"""
           <a class="imgThumb" href="{uu}" target="_blank" rel="noopener">
@@ -2421,9 +2635,10 @@ def render_cr(
                 lot_list = ["SYNTHESE"]
             lot_display = _escape(", ".join(lot_list)) if lot_list else "—"
             company_logo = company_info.get("logo", "")
+            company_logo_src = _img_src_from_ref(company_logo)
             logo_html = (
-                f"<img class='coLogo' src='{_escape(company_logo)}' alt='' loading='lazy' />"
-                if company_logo and company_logo.startswith("http")
+                f"<img class='coLogo' src='{_escape(company_logo_src)}' alt='' loading='lazy' />"
+                if company_logo_src
                 else ""
             )
             rows.append(
@@ -2672,10 +2887,16 @@ def render_cr(
         img_urls = parse_image_urls_any(r.get(memo_img_col)) if memo_img_col else []
         thumbs = ""
         if img_urls:
-            thumbs_imgs = "".join(
-                f"<span class='thumbAWrap' data-thumb><a class='thumbA' href='{_escape(u)}' target='_blank' rel='noopener'><img class='thumb' src='{_escape(u)}' alt='' /></a><button type='button' class='thumbRemove noPrint' title='Supprimer'>×</button><span class='thumbHandle' title='Déplacer / redimensionner'></span></span>"
-                for u in img_urls[:6]
-            )
+            thumbs_items = []
+            for u in img_urls[:6]:
+                src = _img_src_from_ref(u)
+                if not src:
+                    continue
+                us = _escape(src)
+                thumbs_items.append(
+                    f"<span class='thumbAWrap' data-thumb><a class='thumbA' href='{us}' target='_blank' rel='noopener'><img class='thumb' src='{us}' alt='' /></a><button type='button' class='thumbRemove noPrint' title='Supprimer'>×</button><span class='thumbHandle' title='Déplacer / redimensionner'></span></span>"
+                )
+            thumbs_imgs = "".join(thumbs_items)
             thumbs = f"<div class='thumbs' data-gallery>{thumbs_imgs}</div>"
 
         row_cls = "rowItem rowMeeting" if is_meeting else "rowItem"
